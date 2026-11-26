@@ -20,6 +20,18 @@ import java.util.Locale;
  */
 public final class RuleParser {
 
+  /** Longest accepted expression, in characters. */
+  public static final int MAX_LENGTH = 2_000;
+
+  /** Deepest accepted nesting of parentheses, {@code not} and unary minus. */
+  public static final int MAX_DEPTH = 32;
+
+  /** Most nodes (operators, variables, literals) in one expression tree. */
+  public static final int MAX_NODES = 500;
+
+  /** Most items in one {@code in (...)} list. */
+  public static final int MAX_IN_ITEMS = 50;
+
   private enum Kind {
     NUMBER,
     STRING,
@@ -32,6 +44,8 @@ public final class RuleParser {
 
   private final List<Token> tokens;
   private int index;
+  private int depth;
+  private int nodes;
 
   private RuleParser(String source) {
     this.tokens = tokenize(source);
@@ -41,6 +55,10 @@ public final class RuleParser {
   public static Expr parse(String source) {
     if (source == null || source.isBlank()) {
       throw new RuleSyntaxException("Expression is empty", 0);
+    }
+    if (source.length() > MAX_LENGTH) {
+      throw new RuleSyntaxException(
+          "Expression is longer than " + MAX_LENGTH + " characters", MAX_LENGTH);
     }
     RuleParser parser = new RuleParser(source);
     Expr expr = parser.parseOr();
@@ -128,8 +146,16 @@ public final class RuleParser {
     return tokens.get(index);
   }
 
+  /** Every operand and operator consumed counts as one tree node; grouping tokens do not. */
   private Token next() {
-    return tokens.get(index++);
+    Token t = tokens.get(index++);
+    boolean grouping =
+        t.kind() == Kind.END || (t.kind() == Kind.SYMBOL && "(),".contains(t.text()));
+    if (!grouping && ++nodes > MAX_NODES) {
+      throw new RuleSyntaxException(
+          "Expression has more than " + MAX_NODES + " terms", t.position());
+    }
+    return t;
   }
 
   private boolean isWord(String word) {
@@ -174,10 +200,23 @@ public final class RuleParser {
     return new Expr.Binary(op, left, right);
   }
 
+  private void enter(Token at) {
+    if (++depth > MAX_DEPTH) {
+      throw new RuleSyntaxException(
+          "Expression is nested deeper than " + MAX_DEPTH + " levels", at.position());
+    }
+  }
+
   private Expr parseNot() {
     if (isWord("not")) {
       Token op = next();
-      Expr operand = parseNot();
+      enter(op);
+      Expr operand;
+      try {
+        operand = parseNot();
+      } finally {
+        depth--;
+      }
       require(operand, ValueType.BOOL, op);
       return new Expr.Unary(Expr.UnaryOp.NOT, operand);
     }
@@ -239,6 +278,10 @@ public final class RuleParser {
             start.position());
       }
       options.add(literal);
+      if (options.size() > MAX_IN_ITEMS) {
+        throw new RuleSyntaxException(
+            "'in' lists may have at most " + MAX_IN_ITEMS + " items", start.position());
+      }
       if (!isSymbol(",")) {
         break;
       }
@@ -279,7 +322,13 @@ public final class RuleParser {
   private Expr parseUnary() {
     if (isSymbol("-")) {
       Token op = next();
-      Expr operand = parseUnary();
+      enter(op);
+      Expr operand;
+      try {
+        operand = parseUnary();
+      } finally {
+        depth--;
+      }
       require(operand, ValueType.NUMBER, op);
       if (operand instanceof Expr.Literal literal) {
         return new Expr.Literal(-(Double) literal.value(), ValueType.NUMBER);
@@ -304,7 +353,13 @@ public final class RuleParser {
         return word(t);
       case SYMBOL:
         if (t.text().equals("(")) {
-          Expr inner = parseOr();
+          enter(t);
+          Expr inner;
+          try {
+            inner = parseOr();
+          } finally {
+            depth--;
+          }
           expectSymbol(")");
           return inner;
         }

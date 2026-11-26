@@ -148,4 +148,62 @@ class RuleParserTest {
             "device_account_count",
             "country");
   }
+
+  @Test
+  void deeplyNestedExpressionsAreRejectedWithoutBlowingTheStack() {
+    String huge = "(".repeat(10_000) + "amount > 1" + ")".repeat(10_000);
+    assertThatThrownBy(() -> RuleParser.parse(huge))
+        .isInstanceOf(RuleSyntaxException.class)
+        .hasMessageContaining("longer than");
+
+    int over = RuleParser.MAX_DEPTH + 1;
+    String nested = "(".repeat(over) + "amount > 1" + ")".repeat(over);
+    assertThatThrownBy(() -> RuleParser.parse(nested))
+        .isInstanceOf(RuleSyntaxException.class)
+        .hasMessageContaining("nested deeper");
+    String withNot = "not ".repeat(over) + "true";
+    assertThatThrownBy(() -> RuleParser.parse(withNot)).hasMessageContaining("nested deeper");
+    String minuses = "-".repeat(over) + "1 > 0";
+    assertThatThrownBy(() -> RuleParser.parse(minuses)).hasMessageContaining("nested deeper");
+
+    int ok = RuleParser.MAX_DEPTH;
+    assertThat(RuleParser.parse("(".repeat(ok) + "amount > 1" + ")".repeat(ok)).type())
+        .isEqualTo(ValueType.BOOL);
+  }
+
+  @Test
+  void hugeBooleanChainsAreRejectedByTermCount() {
+    String orChain = "amount > 1 " + "or amount > 1 ".repeat(130);
+    assertThat(orChain.length()).isLessThan(RuleParser.MAX_LENGTH);
+    assertThatThrownBy(() -> RuleParser.parse(orChain))
+        .isInstanceOf(RuleSyntaxException.class)
+        .hasMessageContaining("more than " + RuleParser.MAX_NODES + " terms");
+    String justUnder = "amount > 1 " + "or amount > 1 ".repeat(100);
+    assertThat(RuleParser.parse(justUnder).type()).isEqualTo(ValueType.BOOL);
+  }
+
+  @Test
+  void inListsAreBounded() {
+    String items =
+        String.join(", ", java.util.Collections.nCopies(RuleParser.MAX_IN_ITEMS + 1, "1"));
+    assertThatThrownBy(() -> RuleParser.parse("amount in (" + items + ")"))
+        .isInstanceOf(RuleSyntaxException.class)
+        .hasMessageContaining("at most " + RuleParser.MAX_IN_ITEMS);
+    String allowed = String.join(", ", java.util.Collections.nCopies(RuleParser.MAX_IN_ITEMS, "1"));
+    assertThat(RuleParser.parse("amount in (" + allowed + ")").type()).isEqualTo(ValueType.BOOL);
+  }
+
+  @Test
+  void aRuleSetWithAnOverlongExpressionReportsItAsAValidationError() {
+    var doc =
+        new dev.francisworld.fraudstream.model.RuleSetDocument(
+            "default",
+            1,
+            java.util.List.of(
+                new dev.francisworld.fraudstream.model.RuleDefinition(
+                    "big", "", "(".repeat(5_000) + "true" + ")".repeat(5_000), 5)));
+    assertThatThrownBy(() -> RuleCompiler.compile(doc))
+        .isInstanceOf(RuleSetInvalidException.class)
+        .hasMessageContaining("rule 'big'");
+  }
 }
