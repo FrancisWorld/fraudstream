@@ -57,7 +57,7 @@ flowchart LR
 Requisitos: JDK 21 e Maven. Docker só é necessário para a stack compose e para o teste de fumaça opcional.
 
 ```sh
-mvn -B verify                       # lint (spotless), compilação com -Werror, 174 testes, piso de 85% de cobertura
+mvn -B verify                       # lint (spotless), compilação com -Werror, 187 testes, piso de 85% de cobertura
 
 mvn -B -q package -DskipTests
 scripts/fraudstream-cli generate --accounts 500 --days 14 --seed 42 --out data.jsonl
@@ -143,19 +143,20 @@ $ curl .../metrics | grep fraudstream_alerts_total   ->  fraudstream_alerts_tota
 ## Decisões de projeto e trade-offs
 
 - **Processor API nos estágios com estado, DSL na tubulação.** Agregações janeladas da DSL descartam registros atrasados em silêncio. Manter um buffer ordenado por tempo de evento por conta torna a velocidade *exata* (janela deslizante terminando no instante do próprio evento, conferida contra um oráculo de força bruta com jqwik), permite detectar duplicatas e rotear atrasados para um tópico. O custo: estado em JSON por conta, limitado a 2.000 eventos, regravado a cada evento.
+- **O scoring é imediato, então o score depende da ordem de chegada dentro da tolerância.** Um evento é pontuado uma vez, na chegada, sobre os eventos já ingeridos, numa janela que termina no seu próprio instante. O *estado armazenado* independe da ordem de chegada (testado por propriedade) e as features de um evento atrasado são exatas, mas um alerta já emitido para um evento mais novo não é revisado nem retirado quando um evento mais antigo chega depois. A alternativa, reter cada evento até fechar a tolerância, deixaria os scores independentes da ordem ao custo de atrasar todo alerta pela tolerância; escolhi a latência.
 - **A tolerância usa o stream time do Kafka Streams.** Um evento é atrasado quando `eventTime < streamTime - grace`, sendo stream time o maior tempo de evento visto pela tarefa da partição. É a mesma semântica de fechamento de janela do Kafka; uma conta muito ativa avança o relógio de todas as contas da partição.
 - **Três saltos de repartição** (conta, comerciante, dispositivo) em vez de join co-particionado: simples, cada estágio é dono de um store e cada feature vem de estado chaveado como ela precisa. Cada salto re-chaveia por segurança, então a correção não depende de como os produtores chaveiam.
 - **Recarga a quente via store global.** Toda instância tem o conjunto completo. Só vale se compila e se a versão é estritamente maior; reentregas antigas e regras quebradas são ignoradas (e contadas). A recarga é eventualmente consistente entre instâncias e não transacional com o scoring, por isso todo alerta registra o `ruleSetVersion`.
-- **DSL própria, não linguagem de script embutida.** Gramática pequena e tipada sobre um catálogo fechado de variáveis. Erros de tipo e variáveis desconhecidas são reportados com coluna na publicação, nada fora da gramática é executado, e regra que falha em runtime (divisão por zero) é pulada e contada.
-- **Casos event-sourced dentro do Kafka Streams.** Alertas e comandos de analistas entram num único fluxo chaveado por conta, então a partição os serializa: dois `CLAIM` concorrentes têm exatamente um vencedor e o perdedor recebe `COMMAND_REJECTED`. Comandos têm id de idempotência. A API pré-valida a transição (`409`), mas a topologia decide. Sem banco externo; em troca, listar casos varre o store (sem índice secundário).
-- **Consultas interativas com encaminhamento ao dono.** Requisições por chave são repassadas à instância dona (um salto só; requisição encaminhada nunca é reencaminhada); listagens consultam todas e marcam `partial` se algum par estiver fora.
+- **DSL própria, não linguagem de script embutida.** Expressões têm limites (2.000 caracteres, aninhamento 32, 500 termos, 50 itens por lista `in`) e são rejeitadas com coluna, então um conjunto de regras hostil não esgota pilha nem CPU. Gramática pequena e tipada sobre um catálogo fechado de variáveis. Erros de tipo e variáveis desconhecidas são reportados com coluna na publicação, nada fora da gramática é executado, e regra que falha em runtime (divisão por zero) é pulada e contada.
+- **Casos event-sourced dentro do Kafka Streams.** Alertas e comandos de analistas entram num único fluxo chaveado por conta, então a partição os serializa: dois `CLAIM` concorrentes têm exatamente um vencedor e o perdedor recebe `COMMAND_REJECTED`. Comandos têm id de idempotência. A API pré-valida a transição (`409`), mas a topologia decide. Sem banco externo; em troca, listar casos varre o store (sem índice secundário). Por conta, ficam retidos todos os casos abertos e os 20 fechados mais recentes; casos fechados mais antigos saem do estado (o histórico continua no tópico `case-events`) e ids de caso nunca são reutilizados.
+- **Consultas interativas com encaminhamento ao dono.** Requisições por chave são repassadas à instância dona (um salto só; requisição encaminhada nunca é reencaminhada). O salto é autenticado por HMAC-SHA256 sobre método, caminho, query e timestamp com `FRAUDSTREAM_PEER_SECRET`; um header de salto enviado por cliente sem assinatura válida é ignorado. Toda instância de um deploy multi-instância precisa do mesmo segredo; se não definido, gera-se um aleatório, o que serve só para uma instância; listagens consultam todas e marcam `partial` se algum par estiver fora.
 - **Formato de fio.** `[0x00][id do schema][Avro binário]` com duas gerações resolvidas para a última na leitura (compatibilidade verificada nos dois sentidos nos testes). Não há schema registry externo: o registro é o classpath, suficiente para um serviço, inadequado para muitos produtores independentes. A borda HTTP valida JSON Schema v1/v2 e grava a geração usada pelo chamador.
 - **Autenticação.** Tokens bearer são configurados como hashes SHA-256 (vazar a config não vaza tokens utilizáveis), comparados em tempo constante, mapeados a papéis (`INGEST`, `ANALYST`, `ADMIN`). O serviço não inicia sem tokens. O ator na trilha de auditoria é o principal autenticado; um `actor` forjado no corpo é ignorado (testado).
 - **Exactly-once v2** habilitado na aplicação Streams; o produtor da API é idempotente com `acks=all`. Duplicatas de produtores at-least-once são removidas pela topologia (id da transação, dentro de uma hora mais a tolerância).
 
 ## Estratégia de testes
 
-174 testes em `mvn verify`, sem broker exceto o teste de fumaça opcional. Cobertura de linhas de 92,8% e o build falha abaixo de 85%.
+187 testes em `mvn verify`, sem broker exceto o teste de fumaça opcional. Cobertura de linhas de 92,7% e o build falha abaixo de 85%.
 
 - **TopologyTestDriver com estado RocksDB** para o pipeline: cada feature ponta a ponta, limites da tolerância, fora de ordem dentro da tolerância, duplicatas, quatro tipos de mensagem venenosa, as duas gerações de schema, recarga de regras, regras antigas e inválidas, erros de regra em runtime, ciclo de vida do caso, comandos idempotentes, claim perdido numa disputa.
 - **Propriedades jqwik:** velocidade igual a um oráculo de força bruta; estado final independente da ordem de chegada; replay idempotente; janelas monotônicas; ponto fixo de `format`/`parse` da DSL, De Morgan, aritmética contra Java; round trip Avro para transações arbitrárias; a máquina de estados nunca reabre caso fechado; simetria do haversine.
@@ -171,13 +172,17 @@ Ressalva sobre o test driver: ele executa todas as sub-topologias numa só taref
 - **Não verificado:** o perfil Prometheus/Grafana (arquivos de config conferidos só por leitura, imagens não baixadas); o OpenTofu só passou por `fmt`/`validate`, nunca `plan`/`apply`, então permissões IAM do MSK Serverless, o perfil de build `msk` (`-Pmsk`, adiciona `aws-msk-iam-auth`) e o comportamento no Fargate não foram testados; rebalanceamento com várias instâncias Streams e o encaminhamento entre instâncias foram exercitados com duas instâncias da API no mesmo processo, não com duas instâncias Streams reais.
 - A imagem Docker foi construída com o builder clássico porque o `buildx` não estava disponível; o Dockerfile não usa sintaxe exclusiva do BuildKit.
 - O estado por conta é serializado em JSON a cada evento: ok para volumes de cartão, não para chaves muito quentes.
-- Eventos atrasados são roteados, não repontuados. Alertas não são retirados quando o conjunto de regras muda.
+- Eventos atrasados são roteados, não repontuados, e uma chegada fora de ordem dentro da tolerância não revisa scores já emitidos. Alertas não são retirados quando o conjunto de regras muda.
 - A listagem de casos varre os stores locais. O HTTP entre instâncias é em texto puro; termine TLS na frente e mantenha o tráfego entre instâncias em rede privada.
 - A detecção de duplicatas cobre só a janela de retenção (uma hora mais a tolerância).
 
+## Cardinalidade de chaves e retenção
+
+O estado cresce com o número de chaves distintas e nada aqui expira chaves por tempo: um registro pequeno por conta (até 2.000 eventos recentes), por comerciante (média e variância correntes) e por dispositivo (até 1.000 contas ligadas, podado para a janela de 24 h quando o dispositivo reaparece). Comerciantes e dispositivos ociosos nunca são removidos, e o registro de uma conta só é podado quando ela transaciona de novo. Com milhões de dispositivos ou comerciantes distintos, dimensione o disco do RocksDB e dos changelogs, ou adicione um punctuator de TTL. Casos são retidos como descrito acima.
+
 ## Infraestrutura
 
-`infra/` é OpenTofu para MSK Serverless (autenticação IAM), serviço ECS Fargate atrás de um ALB interno, papel da tarefa limitado aos tópicos `fraud.*` e `<application-id>-*` deste cluster, ao próprio consumer group e transactional ids, e um papel de execução separado que só lê o segredo dos tokens. Somente validação:
+`infra/` é OpenTofu para MSK Serverless (autenticação IAM), serviço ECS Fargate atrás de um ALB interno, papel da tarefa limitado aos tópicos `fraud.*` e `<application-id>-*` deste cluster, ao próprio consumer group e a transactional ids `<application-id>-*`, e um papel de execução separado que só lê o segredo dos tokens. Somente validação:
 
 ```sh
 cd infra && tofu fmt -check && tofu init -backend=false && tofu validate

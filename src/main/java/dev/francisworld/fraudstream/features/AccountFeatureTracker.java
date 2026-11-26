@@ -12,10 +12,19 @@ import java.util.TreeMap;
  * impossible-travel speed. It is deliberately free of Kafka types so it can be tested and fuzzed
  * directly.
  *
- * <p>Out-of-order events are handled by inserting by event time and evaluating every window
- * relative to the event's own timestamp, so the features of an event do not depend on the order in
- * which events within the grace period arrive, except that an event only sees data that has already
- * been ingested.
+ * <p>Guarantees, precisely:
+ *
+ * <ul>
+ *   <li>The stored state after a set of events is independent of the order they arrived in.
+ *   <li>The features of an event are exact over the events ingested <em>before it</em>, evaluated
+ *       in a window ending at the event's own timestamp. An event that arrives out of order
+ *       therefore sees its older neighbours correctly and its newer neighbours that already
+ *       arrived.
+ *   <li>Features are computed once, on arrival. A later out-of-order arrival can change what the
+ *       features of an already scored event would have been, but that event is not re-scored and an
+ *       alert already emitted is not retracted. Scoring after the grace period closes would make
+ *       every score order-independent at the price of delaying every alert by the grace.
+ * </ul>
  */
 public final class AccountFeatureTracker {
 

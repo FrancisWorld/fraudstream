@@ -84,4 +84,24 @@ class AccountFeatureTrackerTest {
     var other = observe(state, tx("b").at(-22.90, -43.17).build());
     assertThat(other.features().get(Features.TRAVEL_SPEED_KMH)).isFinite().isGreaterThan(900.0);
   }
+
+  @Test
+  void featuresAreExactOverWhatHasArrivedAndEarlierScoresAreNotRevised() {
+    var older = tx("a").atSecond(0).build();
+    var newer = tx("b").atSecond(30).build();
+
+    // newer first: scored with only itself in the window, then the older one arrives
+    var first = observe(AccountState.empty(), newer);
+    assertThat(first.features().get(Features.VELOCITY_COUNT_1M)).isEqualTo(1.0);
+    var second = observe(first.state(), older);
+    // the late arrival's own features are exact: its window ends at its own time
+    assertThat(second.features().get(Features.VELOCITY_COUNT_1M)).isEqualTo(1.0);
+
+    // in order, the newer event would have seen the older one
+    var inOrder = observe(observe(AccountState.empty(), older).state(), newer);
+    assertThat(inOrder.features().get(Features.VELOCITY_COUNT_1M)).isEqualTo(2.0);
+
+    // the stored state is identical either way
+    assertThat(second.state()).isEqualTo(inOrder.state());
+  }
 }

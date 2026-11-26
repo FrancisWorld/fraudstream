@@ -57,7 +57,7 @@ flowchart LR
 Requirements: JDK 21, Maven. Docker is only needed for the compose stack and the opt-in smoke test.
 
 ```sh
-mvn -B verify                       # lint (spotless), compile with -Werror, 174 tests, 85% coverage gate
+mvn -B verify                       # lint (spotless), compile with -Werror, 187 tests, 85% coverage gate
 
 mvn -B -q package -DskipTests
 scripts/fraudstream-cli generate --accounts 500 --days 14 --seed 42 --out data.jsonl
@@ -143,19 +143,20 @@ $ curl .../metrics | grep fraudstream_alerts_total   ->  fraudstream_alerts_tota
 ## Design decisions and trade-offs
 
 - **Processor API for the stateful stages, DSL for the plumbing.** Windowed DSL aggregations drop late records silently. Keeping an event-time-ordered buffer per account lets velocity be *exact* (a sliding window ending at the event's own time, verified against a brute-force oracle with jqwik), makes duplicates detectable, and lets late events be routed to a topic instead of vanishing. The cost is that state is JSON per account, bounded to 2,000 events, rewritten on each event.
+- **Scoring is immediate, so scores depend on arrival order within grace.** An event is scored once, on arrival, over the events ingested before it, in a window ending at its own timestamp. The *stored state* is independent of arrival order (property-tested), and a late arrival's own features are exact, but an alert already emitted for a newer event is not revised or retracted when an older event arrives afterwards. The alternative, holding every event until its grace closes, would make scores order-independent and delay every alert by the grace period; I chose latency.
 - **Grace uses Kafka Streams stream time.** An event is late when `eventTime < streamTime - grace`, where stream time is the maximum event time seen by that partition's task. This matches Kafka's own window-closing semantics; a very active account therefore advances the clock for every account on its partition.
 - **Three repartition hops** (account, merchant, device) instead of a co-partitioned join: simple, each stage owns one store, and the features of a transaction come from state keyed the way that feature needs. Every hop re-keys defensively, so correctness does not depend on how producers key records.
 - **Rule hot reload through a global store.** Every instance holds the full rule set. A rule set applies only if it compiles and its version is strictly higher, so stale redelivery and broken rules are ignored (and counted). Reload is eventually consistent across instances and not transactional with scoring, so every alert records the `ruleSetVersion` that produced it.
-- **A purpose-built DSL, not an embedded scripting language.** A small typed grammar (numbers, strings, booleans, `in`, arithmetic, `and`/`or`/`not`) over a closed variable catalogue. Type errors and unknown variables are reported with a column at publish time, nothing is executed that is not in the grammar, and a rule that fails at runtime (division by zero) is skipped and counted rather than failing the stream.
-- **Event-sourced cases inside Kafka Streams.** Alerts and analyst commands are merged into one stream keyed by account, so the partition serialises them: two racing `CLAIM`s have exactly one winner and the loser gets a `COMMAND_REJECTED` event. Commands carry an idempotency id. The API pre-checks the transition for fast feedback (`409`), but the topology is the authority. No external database, at the price that listing cases scans the store (there is no secondary index).
-- **Interactive queries with owner forwarding.** Keyed requests are proxied to the instance that owns the key (one hop only; a forwarded request is never forwarded again), list requests fan out and mark the result `partial` if a peer is down.
+- **A purpose-built DSL, not an embedded scripting language.** Expressions are bounded (2,000 characters, nesting depth 32, 500 terms, 50 items per `in` list) and rejected with a column otherwise, so a hostile rule set cannot exhaust the stack or CPU. A small typed grammar (numbers, strings, booleans, `in`, arithmetic, `and`/`or`/`not`) over a closed variable catalogue. Type errors and unknown variables are reported with a column at publish time, nothing is executed that is not in the grammar, and a rule that fails at runtime (division by zero) is skipped and counted rather than failing the stream.
+- **Event-sourced cases inside Kafka Streams.** Alerts and analyst commands are merged into one stream keyed by account, so the partition serialises them: two racing `CLAIM`s have exactly one winner and the loser gets a `COMMAND_REJECTED` event. Commands carry an idempotency id. The API pre-checks the transition for fast feedback (`409`), but the topology is the authority. No external database, at the price that listing cases scans the store (there is no secondary index). Per account, all open cases and the 20 most recent closed ones are retained; older closed cases are evicted from state (their history stays in the `case-events` topic) and case ids are never reused.
+- **Interactive queries with owner forwarding.** Keyed requests are proxied to the instance that owns the key (one hop only; a forwarded request is never forwarded again). The hop is authenticated with an HMAC-SHA256 over method, path, query and timestamp under `FRAUDSTREAM_PEER_SECRET`; a client-supplied hop header without a valid signature is ignored. Every instance of a multi-instance deployment must share the secret; if it is unset a random one is generated, which is fine for a single instance only, list requests fan out and mark the result `partial` if a peer is down.
 - **Wire format.** `[0x00][schema id][Avro binary]` with two schema generations resolved to the latest on read (`SchemaCompatibility` is asserted both ways in tests). There is no external schema registry: the registry is the classpath, which is enough for one service but would not suit many independent producers. The HTTP edge validates JSON Schema v1/v2 and writes the generation the caller used.
 - **Auth.** Bearer tokens are configured as SHA-256 hashes (so config leaks are not usable tokens), compared in constant time, mapped to roles (`INGEST`, `ANALYST`, `ADMIN`). The service refuses to start without tokens. The actor recorded in a case's audit trail is the authenticated principal; a spoofed `actor` in a request body is ignored (tested).
 - **Exactly-once v2** is enabled for the streams application and the API producer is idempotent with `acks=all`. Duplicates from at-least-once producers are removed by the topology (transaction id, within one hour plus grace).
 
 ## Testing strategy
 
-174 tests, run by `mvn verify`, no broker needed except the opt-in smoke test. Line coverage is 92.8% overall and the build fails below 85%.
+187 tests, run by `mvn verify`, no broker needed except the opt-in smoke test. Line coverage is 92.7% overall and the build fails below 85%.
 
 - **TopologyTestDriver with RocksDB state** for the pipeline: every feature end to end, grace boundaries, out-of-order inside grace, duplicates, poison records of four kinds, both schema generations, rule hot reload, stale and invalid rule sets, runtime rule errors, the case lifecycle, idempotent commands, the lost-race claim.
 - **jqwik properties:** velocity equals a brute-force oracle; final state independent of arrival order; replay idempotent; windows monotone; DSL `format`/`parse` fixed point, De Morgan, arithmetic against Java; Avro round trip for arbitrary transactions; case state machine never reopens a closed case; haversine symmetry.
@@ -171,13 +172,17 @@ A caveat about the test driver: it runs all sub-topologies in one task, so strea
 - **Not verified:** the Prometheus and Grafana profile (config files validated by eye only, images not pulled); the OpenTofu stack is only `fmt`/`validate`d, never planned or applied, so MSK Serverless IAM permissions, the `msk` build profile (`-Pmsk`, adds `aws-msk-iam-auth`) and Fargate behaviour are untested; multi-instance Kafka Streams rebalancing and cross-instance forwarding were exercised with two in-process API instances, not two real Streams instances.
 - The Docker image was built with the classic builder because `buildx` was not available on the build machine; the Dockerfile has no BuildKit-only syntax.
 - Per-account state is serialised as JSON on every event; fine for card-like volumes, not for very hot keys.
-- Late events are routed, not re-scored. Alerts are not retracted when a rule set changes.
+- Late events are routed, not re-scored, and an out-of-order arrival within grace does not revise scores already emitted. Alerts are not retracted when a rule set changes.
 - The case list scans local stores. The HTTP between instances is plain; terminate TLS in front of it and keep instance-to-instance traffic on a private network.
 - Duplicate detection only covers the retention window (one hour plus grace).
 
+## Key cardinality and retention
+
+State grows with the number of distinct keys, and nothing here expires keys by time: one small record per account (at most 2,000 recent events), per merchant (a running mean and variance) and per device (at most 1,000 linked accounts, pruned to the 24-hour device window when the device is next seen). Idle merchants and devices are never removed, and an account's record is only pruned when that account transacts again. With millions of distinct devices or merchants plan the RocksDB and changelog disk accordingly, or add a TTL punctuator. Cases are retained as described above.
+
 ## Infrastructure
 
-`infra/` is OpenTofu for MSK Serverless (IAM auth), an ECS Fargate service behind an internal ALB, a task role limited to this cluster's `fraud.*` and `<application-id>-*` topics, its own consumer group and transactional ids, and a separate execution role that may read only the token secret. Validate only:
+`infra/` is OpenTofu for MSK Serverless (IAM auth), an ECS Fargate service behind an internal ALB, a task role limited to this cluster's `fraud.*` and `<application-id>-*` topics, its own consumer group and `<application-id>-*` transactional ids, and a separate execution role that may read only the token secret. Validate only:
 
 ```sh
 cd infra && tofu fmt -check && tofu init -backend=false && tofu validate
