@@ -40,11 +40,13 @@ public final class Router {
   private final AuthTokens auth;
   private final StateAccess state;
   private final Forwarder forwarder;
+  private final HopAuth hopAuth;
 
-  public Router(AuthTokens auth, StateAccess state, Forwarder forwarder) {
+  public Router(AuthTokens auth, StateAccess state, Forwarder forwarder, HopAuth hopAuth) {
     this.auth = auth;
     this.state = state;
     this.forwarder = forwarder;
+    this.hopAuth = hopAuth;
   }
 
   /** Registers an authenticated route. {@code permission == null} means public. */
@@ -121,7 +123,16 @@ public final class Router {
       }
       Request request =
           new Request(
-              method, path, rawQuery, pathParams, parseQuery(rawQuery), headers, body, principal);
+              method,
+              path,
+              rawQuery,
+              pathParams,
+              parseQuery(rawQuery),
+              headers,
+              body,
+              principal,
+              hopAuth != null
+                  && hopAuth.verify(headers.get(HopAuth.HEADER), method, path, rawQuery));
       if (route.owner() != null) {
         Owner owner = route.owner().apply(request);
         Response redirected = forwardIfRemote(owner, request);

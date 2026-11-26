@@ -21,6 +21,7 @@ public record AppConfig(
     int managementPort,
     String advertisedHost,
     String authTokens,
+    String peerSecret,
     FraudSettings settings,
     Map<String, String> kafkaOverrides) {
 
@@ -58,6 +59,7 @@ public record AppConfig(
         integer(env, "FRAUDSTREAM_MANAGEMENT_PORT", 8081, 1, 65_535),
         advertisedHost(env.getOrDefault("FRAUDSTREAM_ADVERTISED_HOST", "localhost")),
         env.get("FRAUDSTREAM_AUTH_TOKENS"),
+        env.get("FRAUDSTREAM_PEER_SECRET"),
         settings,
         Map.copyOf(overrides));
   }

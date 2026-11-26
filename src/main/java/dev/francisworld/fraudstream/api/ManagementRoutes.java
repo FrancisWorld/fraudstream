@@ -10,7 +10,7 @@ public final class ManagementRoutes {
   private ManagementRoutes() {}
 
   public static Router create(PrometheusMeterRegistry registry, BooleanSupplier ready) {
-    Router router = new Router(null, null, null);
+    Router router = new Router(null, null, null, null);
     router.route("GET", "/healthz", null, r -> Response.json(200, Map.of("status", "up")));
     router.route(
         "GET",

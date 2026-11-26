@@ -21,6 +21,7 @@ class AppConfigTest {
     assertThat(c.createTopics()).isTrue();
     assertThat(c.seedRules()).isFalse();
     assertThat(c.authTokens()).isNull();
+    assertThat(c.peerSecret()).isNull();
   }
 
   @Test

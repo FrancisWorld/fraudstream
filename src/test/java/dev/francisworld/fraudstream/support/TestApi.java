@@ -64,6 +64,15 @@ public final class TestApi implements AutoCloseable {
     }
   }
 
+  /** Peer secret shared by every instance created in a test. */
+  public static final dev.francisworld.fraudstream.api.HopAuth HOP =
+      new dev.francisworld.fraudstream.api.HopAuth(
+          "test-peer-secret-0123456789", Clock.systemUTC());
+
+  public static Forwarder forwarder() {
+    return new Forwarder(HOP);
+  }
+
   public final PipelineFixture fixture;
   public final FlakyProducer producer = new FlakyProducer();
   public final HttpService http;
@@ -73,7 +82,7 @@ public final class TestApi implements AutoCloseable {
   public TestApi(PipelineFixture fixture, StateAccess state, Forwarder forwarder) {
     this.fixture = fixture;
     var topics = fixture.topics;
-    Router router = new Router(AuthTokens.parse(TOKENS), state, forwarder);
+    Router router = new Router(AuthTokens.parse(TOKENS), state, forwarder, HOP);
     new TransactionRoutes(producer, topics, new TransactionRequestValidator(), fixture.codec)
         .register(router);
     new RuleRoutes(producer, topics, state, "default").register(router);
@@ -95,7 +104,7 @@ public final class TestApi implements AutoCloseable {
 
   public static TestApi standalone() {
     PipelineFixture fixture = new PipelineFixture();
-    return new TestApi(fixture, DriverStateAccess.local(fixture), new Forwarder());
+    return new TestApi(fixture, DriverStateAccess.local(fixture), forwarder());
   }
 
   public URI uri(String path) {

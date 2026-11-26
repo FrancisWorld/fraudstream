@@ -13,9 +13,8 @@ public record Request(
     Map<String, String> query,
     Map<String, String> headers,
     byte[] body,
-    Principal principal) {
-
-  public static final String HOP_HEADER = "x-fraudstream-hop";
+    Principal principal,
+    boolean forwarded) {
 
   public String bodyText() {
     return new String(body, StandardCharsets.UTF_8);
@@ -29,7 +28,8 @@ public record Request(
     return pathParams.get(name);
   }
 
+  /** True only when the hop header carried a valid peer signature for this very request. */
   public boolean isForwarded() {
-    return headers.containsKey(HOP_HEADER);
+    return forwarded;
   }
 }

@@ -4,6 +4,7 @@ import dev.francisworld.fraudstream.api.AccountRoutes;
 import dev.francisworld.fraudstream.api.AuthTokens;
 import dev.francisworld.fraudstream.api.CaseRoutes;
 import dev.francisworld.fraudstream.api.Forwarder;
+import dev.francisworld.fraudstream.api.HopAuth;
 import dev.francisworld.fraudstream.api.HttpService;
 import dev.francisworld.fraudstream.api.ManagementRoutes;
 import dev.francisworld.fraudstream.api.Router;
@@ -81,8 +82,17 @@ public final class Application implements AutoCloseable {
 
     HostInfo self = new HostInfo(config.advertisedHost(), config.httpPort());
     var access = new StreamsStateAccess(streams, self);
-    var forwarder = new Forwarder();
-    Router router = new Router(auth, access, forwarder);
+    HopAuth hopAuth;
+    if (config.peerSecret() == null || config.peerSecret().isBlank()) {
+      hopAuth = HopAuth.random();
+      LOG.warn(
+          "FRAUDSTREAM_PEER_SECRET is not set: using a random secret, so forwarding between"
+              + " instances will not work. Set the same secret on every instance to run more than one.");
+    } else {
+      hopAuth = new HopAuth(config.peerSecret(), Clock.systemUTC());
+    }
+    var forwarder = new Forwarder(hopAuth);
+    Router router = new Router(auth, access, forwarder, hopAuth);
     new TransactionRoutes(producer, topics, new TransactionRequestValidator(), codec)
         .register(router);
     new RuleRoutes(producer, topics, access, config.settings().activeRuleSet()).register(router);

@@ -42,7 +42,7 @@ class OwnerForwardingTest {
                 frontFixture,
                 new StateAccess.Placement.Remote("localhost", owner.http.port()),
                 List.of(new StateAccess.Peer("localhost", owner.http.port()))),
-            new Forwarder());
+            TestApi.forwarder());
   }
 
   @AfterEach
@@ -95,7 +95,7 @@ class OwnerForwardingTest {
                 lonely,
                 new StateAccess.Placement.Local(),
                 List.of(new StateAccess.Peer("localhost", 1))),
-            new Forwarder())) {
+            TestApi.forwarder())) {
       var list = api.get("/api/v1/cases", ALICE_TOKEN).json();
       assertThat(list.get("partial").asBoolean()).isTrue();
       assertThat(list.get("cases")).hasSize(1);
@@ -104,10 +104,48 @@ class OwnerForwardingTest {
 
   @Test
   void forwardedRequestsAreNeverForwardedAgainAndMovingStateIsRetryable() {
+    String signed = TestApi.HOP.sign("GET", "/api/v1/accounts/x/risk", null);
     var looped =
-        front.call("GET", "/api/v1/accounts/x/risk", ALICE_TOKEN, null, "X-Fraudstream-Hop", "1");
+        front.call(
+            "GET", "/api/v1/accounts/x/risk", ALICE_TOKEN, null, "X-Fraudstream-Hop", signed);
     assertThat(looped.status()).isEqualTo(503);
     assertThat(looped.json().at("/error/code").asText()).isEqualTo("unavailable");
+  }
+
+  @Test
+  void aClientCannotSpoofTheHopHeader() {
+    // A forged header is ignored, so the request is forwarded normally instead of being refused.
+    for (String forged : new String[] {"1", "123.abc", System.currentTimeMillis() + ".deadbeef"}) {
+      var reply =
+          front.call(
+              "GET",
+              "/api/v1/accounts/on-owner/risk",
+              ALICE_TOKEN,
+              null,
+              "X-Fraudstream-Hop",
+              forged);
+      assertThat(reply.status()).isEqualTo(200);
+      assertThat(reply.json().get("alertCount").asInt()).isEqualTo(1);
+    }
+    // ... and cannot be used to suppress fan-out either.
+    var list =
+        front.call("GET", "/api/v1/cases", ALICE_TOKEN, null, "X-Fraudstream-Hop", "1").json();
+    assertThat(list.get("cases")).hasSize(2);
+  }
+
+  @Test
+  void aSignatureForOneRequestIsUselessForAnother() {
+    String forOtherPath = TestApi.HOP.sign("GET", "/api/v1/accounts/other/risk", null);
+    var reply =
+        front.call(
+            "GET",
+            "/api/v1/accounts/on-owner/risk",
+            ALICE_TOKEN,
+            null,
+            "X-Fraudstream-Hop",
+            forOtherPath);
+    assertThat(reply.status()).isEqualTo(200);
+    assertThat(reply.json().get("alertCount").asInt()).isEqualTo(1);
   }
 
   @Test
@@ -117,7 +155,7 @@ class OwnerForwardingTest {
         new TestApi(
             f,
             new DriverStateAccess(f, new StateAccess.Placement.Unavailable(), List.of()),
-            new Forwarder())) {
+            TestApi.forwarder())) {
       assertThat(api.get("/api/v1/accounts/x/risk", ALICE_TOKEN).status()).isEqualTo(503);
       assertThat(
               api.call(
@@ -137,7 +175,7 @@ class OwnerForwardingTest {
         new TestApi(
             f,
             new DriverStateAccess(f, new StateAccess.Placement.Remote("localhost", 1), List.of()),
-            new Forwarder())) {
+            TestApi.forwarder())) {
       assertThat(api.get("/api/v1/accounts/x/risk", ALICE_TOKEN).status()).isEqualTo(503);
     }
   }

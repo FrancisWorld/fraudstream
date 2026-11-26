@@ -11,8 +11,13 @@ import java.util.Map;
 /** Relays a request to another instance, marking it so it cannot bounce back. */
 public final class Forwarder {
 
+  private final HopAuth hopAuth;
   private final HttpClient client =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+
+  public Forwarder(HopAuth hopAuth) {
+    this.hopAuth = hopAuth;
+  }
 
   public Response forward(String host, int port, Request request) {
     return send(
@@ -42,7 +47,7 @@ public final class Forwarder {
     HttpRequest.Builder builder =
         HttpRequest.newBuilder(URI.create("http://" + host + ":" + port + path + query))
             .timeout(Duration.ofSeconds(5))
-            .header(Request.HOP_HEADER, "1")
+            .header(HopAuth.HEADER, hopAuth.sign(method, path, rawQuery))
             .method(method, HttpRequest.BodyPublishers.ofByteArray(body));
     if (body.length > 0) {
       builder.header("Content-Type", "application/json");
