@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "Transaction",
+  "namespace": "dev.francisworld.fraudstream.avro",
+  "doc": "Generation 1: no device, network or channel information.",
+  "fields": [
+    {"name": "transactionId", "type": "string"},
+    {"name": "accountId", "type": "string"},
+    {"name": "amountMinor", "type": "long"},
+    {"name": "currency", "type": "string"},
+    {"name": "merchantId", "type": "string"},
+    {"name": "merchantCategory", "type": "string"},
+    {"name": "country", "type": ["null", "string"], "default": null},
+    {"name": "latitude", "type": ["null", "double"], "default": null},
+    {"name": "longitude", "type": ["null", "double"], "default": null},
+    {"name": "eventTimeMs", "type": "long"}
+  ]
+}

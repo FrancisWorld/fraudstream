@@ -1,0 +1,21 @@
+{
+  "type": "record",
+  "name": "Transaction",
+  "namespace": "dev.francisworld.fraudstream.avro",
+  "doc": "Generation 2: adds device, IP address and channel. Every new field has a default so v1 data stays readable.",
+  "fields": [
+    {"name": "transactionId", "type": "string"},
+    {"name": "accountId", "type": "string"},
+    {"name": "amountMinor", "type": "long"},
+    {"name": "currency", "type": "string"},
+    {"name": "merchantId", "type": "string"},
+    {"name": "merchantCategory", "type": "string"},
+    {"name": "country", "type": ["null", "string"], "default": null},
+    {"name": "latitude", "type": ["null", "double"], "default": null},
+    {"name": "longitude", "type": ["null", "double"], "default": null},
+    {"name": "eventTimeMs", "type": "long"},
+    {"name": "deviceId", "type": ["null", "string"], "default": null},
+    {"name": "ipAddress", "type": ["null", "string"], "default": null},
+    {"name": "channel", "type": "string", "default": "unknown"}
+  ]
+}

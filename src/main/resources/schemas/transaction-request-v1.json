@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fraudstream.example/schemas/transaction-request-v1.json",
+  "title": "Transaction ingestion request, generation 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["transactionId", "accountId", "amountMinor", "currency", "merchantId", "merchantCategory", "eventTime"],
+  "dependentRequired": {"latitude": ["longitude"], "longitude": ["latitude"]},
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "transactionId": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$"},
+    "accountId": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$"},
+    "amountMinor": {"type": "integer", "minimum": 1, "maximum": 100000000000},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "merchantId": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,64}$"},
+    "merchantCategory": {"type": "string", "minLength": 1, "maxLength": 32},
+    "country": {"type": "string", "pattern": "^[A-Z]{2}$"},
+    "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+    "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+    "eventTime": {"type": "string", "format": "date-time"}
+  }
+}
