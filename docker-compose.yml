@@ -23,6 +23,7 @@ services:
 
   fraudstream:
     build: .
+    image: fraudstream:local
     container_name: fraudstream-app
     depends_on:
       - kafka
@@ -33,8 +34,8 @@ services:
       FRAUDSTREAM_SEED_RULES: "true"
       FRAUDSTREAM_PARTITIONS: "3"
     ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:${FRAUDSTREAM_API_PORT:-8080}:8080"
+      - "127.0.0.1:${FRAUDSTREAM_MANAGEMENT_PORT:-8081}:8081"
     volumes:
       - fraudstream-state:/app/state
     mem_limit: 768m

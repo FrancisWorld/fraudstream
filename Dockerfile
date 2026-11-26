@@ -1,13 +1,12 @@
-# syntax=docker/dockerfile:1
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /src
 ARG MAVEN_PROFILES=""
 ENV MAVEN_OPTS="-Xmx512m"
 COPY .mvn .mvn
 COPY mvnw pom.xml ./
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -q dependency:go-offline -Dspotless.skip=true -P"${MAVEN_PROFILES}"
+RUN ./mvnw -B -q dependency:go-offline -Dspotless.skip=true ${MAVEN_PROFILES:+-P${MAVEN_PROFILES}}
 COPY src src
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -q package -DskipTests -Dspotless.skip=true -Djacoco.skip=true -P"${MAVEN_PROFILES}"
+RUN ./mvnw -B -q package -DskipTests -Dspotless.skip=true -Djacoco.skip=true ${MAVEN_PROFILES:+-P${MAVEN_PROFILES}}
 
 FROM eclipse-temurin:21-jre
 RUN groupadd --system --gid 10001 fraud && useradd --system --uid 10001 --gid fraud --home-dir /app --shell /usr/sbin/nologin fraud \

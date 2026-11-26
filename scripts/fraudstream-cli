@@ -1,0 +1,3 @@
+#!/bin/sh
+# Runs the CLI from a built checkout (mvn package first).
+exec java -Xmx512m -cp "target/fraudstream.jar:target/lib/*" dev.francisworld.fraudstream.cli.Cli "$@"
