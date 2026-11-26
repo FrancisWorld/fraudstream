@@ -7,6 +7,9 @@ import java.util.Optional;
 /** All cases of one account, the value stored per account key. */
 public record AccountCases(String accountId, long nextSequence, List<CaseRecord> cases) {
 
+  /** Closed cases kept per account, oldest evicted first. */
+  public static final int MAX_CLOSED_CASES = 20;
+
   public AccountCases {
     cases = List.copyOf(cases);
   }
@@ -30,13 +33,34 @@ public record AccountCases(String accountId, long nextSequence, List<CaseRecord>
   public AccountCases withNewCase(CaseRecord created) {
     List<CaseRecord> out = new ArrayList<>(cases);
     out.add(created);
-    return new AccountCases(accountId, nextSequence + 1, out);
+    return new AccountCases(accountId, nextSequence + 1, retain(out));
+  }
+
+  /**
+   * Keeps every open case and only the most recent {@value #MAX_CLOSED_CASES} closed ones, so an
+   * account that alerts for years does not grow its state record without bound. Case ids come from
+   * a monotonic sequence and are never reused after eviction.
+   */
+  static List<CaseRecord> retain(List<CaseRecord> all) {
+    long closed = all.stream().filter(c -> c.status().closed()).count();
+    long toDrop = closed - MAX_CLOSED_CASES;
+    if (toDrop <= 0) {
+      return all;
+    }
+    List<CaseRecord> kept = new ArrayList<>(all.size());
+    for (CaseRecord c : all) {
+      if (c.status().closed() && toDrop-- > 0) {
+        continue;
+      }
+      kept.add(c);
+    }
+    return kept;
   }
 
   public AccountCases replace(CaseRecord updated) {
     List<CaseRecord> out = new ArrayList<>(cases);
     out.replaceAll(c -> c.caseId().equals(updated.caseId()) ? updated : c);
-    return new AccountCases(accountId, nextSequence, out);
+    return new AccountCases(accountId, nextSequence, retain(out));
   }
 
   /** Case ids are {@code <accountId>-<sequence>}; the account id may itself contain dashes. */

@@ -180,4 +180,52 @@ class CaseStateMachineTest {
       }
     }
   }
+
+  private static CaseRecord caseWith(String id, CaseStatus status) {
+    CaseRecord open = CaseRecord.open(id, alert("a-" + id, 10));
+    return new CaseRecord(
+        id,
+        "acc-1",
+        status,
+        status == CaseStatus.OPEN ? null : "alice",
+        10,
+        1,
+        1,
+        open.alerts(),
+        open.history(),
+        List.of());
+  }
+
+  @Test
+  void accountsKeepAllOpenCasesAndOnlyTheMostRecentClosedOnes() {
+    AccountCases cases = AccountCases.empty("acc-1");
+    for (int i = 1; i <= AccountCases.MAX_CLOSED_CASES + 15; i++) {
+      cases = cases.withNewCase(caseWith("acc-1-" + i, CaseStatus.DISMISSED));
+    }
+    assertThat(cases.cases()).hasSize(AccountCases.MAX_CLOSED_CASES);
+    assertThat(cases.cases().get(0).caseId()).isEqualTo("acc-1-16");
+    assertThat(cases.nextCaseId()).isEqualTo("acc-1-36");
+
+    cases = cases.withNewCase(caseWith("acc-1-36", CaseStatus.OPEN));
+    assertThat(cases.openCase()).isPresent();
+    assertThat(cases.cases()).hasSize(AccountCases.MAX_CLOSED_CASES + 1);
+    // closing the open case later evicts the oldest closed one, never an open one
+    cases = cases.replace(caseWith("acc-1-36", CaseStatus.CONFIRMED_FRAUD));
+    assertThat(cases.cases()).hasSize(AccountCases.MAX_CLOSED_CASES);
+    assertThat(cases.find("acc-1-36")).isPresent();
+    assertThat(cases.find("acc-1-16")).isEmpty();
+  }
+
+  @Test
+  void evictionNeverDropsOpenCasesEvenWhenManyAreOpen() {
+    AccountCases cases = AccountCases.empty("acc-1");
+    for (int i = 1; i <= 60; i++) {
+      cases =
+          cases.withNewCase(
+              caseWith("acc-1-" + i, i % 2 == 0 ? CaseStatus.OPEN : CaseStatus.DISMISSED));
+    }
+    assertThat(cases.cases().stream().filter(c -> c.status() == CaseStatus.OPEN)).hasSize(30);
+    assertThat(cases.cases().stream().filter(c -> c.status().closed()))
+        .hasSize(AccountCases.MAX_CLOSED_CASES);
+  }
 }
