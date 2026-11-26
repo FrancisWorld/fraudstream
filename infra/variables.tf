@@ -35,6 +35,11 @@ variable "auth_tokens_secret_arn" {
   type        = string
 }
 
+variable "peer_secret_arn" {
+  description = "Secrets Manager secret holding the shared secret (16+ characters) that authenticates instance-to-instance query forwarding."
+  type        = string
+}
+
 variable "allowed_cidr_blocks" {
   description = "CIDR ranges allowed to reach the internal load balancer."
   type        = list(string)

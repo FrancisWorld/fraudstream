@@ -169,7 +169,7 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 data "aws_iam_policy_document" "execution_secret" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.auth_tokens_secret_arn]
+    resources = [var.auth_tokens_secret_arn, var.peer_secret_arn]
   }
 }
 
@@ -216,7 +216,7 @@ data "aws_iam_policy_document" "task_kafka" {
   statement {
     sid       = "OwnTransactions"
     actions   = ["kafka-cluster:DescribeTransactionalId", "kafka-cluster:AlterTransactionalId"]
-    resources = ["${local.txn_arn_base}/*"]
+    resources = ["${local.txn_arn_base}/${local.application_id}-*"]
   }
 }
 
@@ -278,6 +278,7 @@ resource "aws_ecs_task_definition" "service" {
       ]
       secrets = [
         { name = "FRAUDSTREAM_AUTH_TOKENS", valueFrom = var.auth_tokens_secret_arn },
+        { name = "FRAUDSTREAM_PEER_SECRET", valueFrom = var.peer_secret_arn },
       ]
       logConfiguration = {
         logDriver = "awslogs"
