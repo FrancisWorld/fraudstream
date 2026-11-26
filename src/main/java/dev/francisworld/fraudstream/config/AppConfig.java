@@ -56,10 +56,23 @@ public record AppConfig(
         bool(env, "FRAUDSTREAM_SEED_RULES", false),
         httpPort,
         integer(env, "FRAUDSTREAM_MANAGEMENT_PORT", 8081, 1, 65_535),
-        env.getOrDefault("FRAUDSTREAM_ADVERTISED_HOST", "localhost"),
+        advertisedHost(env.getOrDefault("FRAUDSTREAM_ADVERTISED_HOST", "localhost")),
         env.get("FRAUDSTREAM_AUTH_TOKENS"),
         settings,
         Map.copyOf(overrides));
+  }
+
+  /** "auto" resolves the container's own address, which is what peers must dial on Fargate. */
+  private static String advertisedHost(String configured) {
+    if (!configured.equals("auto")) {
+      return configured;
+    }
+    try {
+      return java.net.InetAddress.getLocalHost().getHostAddress();
+    } catch (java.net.UnknownHostException e) {
+      throw new IllegalArgumentException(
+          "FRAUDSTREAM_ADVERTISED_HOST=auto but the local address cannot be resolved");
+    }
   }
 
   private static int integer(Map<String, String> env, String name, int fallback, int min, int max) {

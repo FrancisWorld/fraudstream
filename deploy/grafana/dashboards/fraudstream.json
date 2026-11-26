@@ -1,0 +1,23 @@
+{
+  "title": "fraudstream",
+  "uid": "fraudstream-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-30m", "to": "now"},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "Alerts per second", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "targets": [{"expr": "rate(fraudstream_alerts_total[1m])", "legendFormat": "alerts"}]},
+    {"id": 2, "type": "timeseries", "title": "Decoded transactions per second", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "targets": [{"expr": "rate(fraudstream_transactions_decoded_total[1m])", "legendFormat": "decoded"}]},
+    {"id": 3, "type": "timeseries", "title": "Late events and duplicates", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+     "targets": [{"expr": "rate(fraudstream_transactions_late_total[5m])", "legendFormat": "late"},
+                 {"expr": "rate(fraudstream_transactions_duplicates_total[5m])", "legendFormat": "duplicates"}]},
+    {"id": 4, "type": "timeseries", "title": "Dead letters by reason", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+     "targets": [{"expr": "sum by (source, reason) (rate(fraudstream_dead_letters_total[5m]))", "legendFormat": "{{source}} {{reason}}"}]},
+    {"id": 5, "type": "stat", "title": "Rule set reloads", "gridPos": {"x": 0, "y": 16, "w": 12, "h": 6},
+     "targets": [{"expr": "sum by (result) (fraudstream_rules_reloads_total)", "legendFormat": "{{result}}"}]},
+    {"id": 6, "type": "timeseries", "title": "Case commands", "gridPos": {"x": 12, "y": 16, "w": 12, "h": 6},
+     "targets": [{"expr": "sum by (result) (rate(fraudstream_case_commands_total[5m]))", "legendFormat": "{{result}}"}]}
+  ]
+}

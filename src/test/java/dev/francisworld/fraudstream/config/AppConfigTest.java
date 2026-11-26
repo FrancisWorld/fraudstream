@@ -57,6 +57,12 @@ class AppConfigTest {
   }
 
   @Test
+  void autoAdvertisedHostResolvesToALiteralAddress() {
+    String host = AppConfig.fromEnv(Map.of("FRAUDSTREAM_ADVERTISED_HOST", "auto")).advertisedHost();
+    assertThat(host).isNotEqualTo("auto").isNotBlank();
+  }
+
+  @Test
   void streamsPropertiesEnableExactlyOnceV2AndAdvertiseTheEndpoint() {
     AppConfig c =
         AppConfig.fromEnv(

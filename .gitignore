@@ -12,3 +12,4 @@ state-dir/
 *.tfplan
 .terraform.lock.hcl.bak
 *.class
+.jqwik-database
