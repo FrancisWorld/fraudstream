@@ -13,7 +13,7 @@ public record AccountRisk(
       return this;
     }
     return new AccountRisk(
-        accountId,
+        alert.accountId(),
         alertCount + 1,
         Math.max(maxScore, alert.totalScore()),
         Math.max(lastAlertTimeMs, alert.eventTimeMs()),

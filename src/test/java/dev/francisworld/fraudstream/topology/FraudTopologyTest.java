@@ -304,6 +304,7 @@ class FraudTopologyTest {
     pipeline.send(tx("b").account("risky").atMinute(1).build());
     pipeline.send(tx("c").account("calm").atMinute(2).build());
     var risk = pipeline.riskStore().get("risky");
+    assertThat(risk.accountId()).isEqualTo("risky");
     assertThat(risk.alertCount()).isEqualTo(2);
     assertThat(risk.maxScore()).isEqualTo(30);
     assertThat(risk.lastAlertId()).isEqualTo("b@v1");
