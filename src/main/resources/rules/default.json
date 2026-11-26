@@ -1,0 +1,42 @@
+{
+  "name": "default",
+  "version": 1,
+  "rules": [
+    {
+      "id": "velocity-burst",
+      "description": "Six or more transactions on one account within five minutes",
+      "when": "velocity_count_5m >= 6",
+      "score": 45
+    },
+    {
+      "id": "high-hourly-spend",
+      "description": "More than 5,000 spent on one account within an hour",
+      "when": "velocity_sum_1h > 5000",
+      "score": 30
+    },
+    {
+      "id": "impossible-travel",
+      "description": "Implied speed between two located transactions exceeds a commercial flight",
+      "when": "travel_speed_kmh > 900 and travel_distance_km > 100",
+      "score": 60
+    },
+    {
+      "id": "merchant-amount-anomaly",
+      "description": "Amount is a strong outlier against the merchant's own history",
+      "when": "merchant_zscore >= 4 and amount >= 50",
+      "score": 50
+    },
+    {
+      "id": "shared-device",
+      "description": "One device used by three or more accounts within the device window",
+      "when": "device_account_count >= 3",
+      "score": 55
+    },
+    {
+      "id": "night-high-value-abroad",
+      "description": "High value, overnight, outside the home country",
+      "when": "hour_of_day < 5 and amount > 800 and country not in ('BR')",
+      "score": 25
+    }
+  ]
+}
